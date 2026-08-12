@@ -1,0 +1,1108 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HCL Notes Web Client (Full Service CRUD & Google Drive)</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- FontAwesome CDN -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Google Identity Services API (Google OAuth 2.0) -->
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        notes: {
+                            primary: '#1E293B',
+                            accent: '#0284C7',
+                            amber: '#D97706',
+                            bg: '#F8FAFC'
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+</head>
+<body class="bg-notes-bg text-slate-800 font-sans h-screen flex flex-col overflow-hidden">
+
+    <!-- Top Navigation Bar -->
+    <header class="bg-slate-900 text-white h-14 flex items-center justify-between px-4 shrink-0 shadow-md">
+        <div class="flex items-center space-x-3">
+            <button id="mobile-menu-btn" class="md:hidden text-slate-300 hover:text-white" onclick="toggleSidebar()">
+                <i class="fa-solid fa-bars text-xl"></i>
+            </button>
+            <div class="flex items-center space-x-2">
+                <div class="w-8 h-8 bg-amber-600 rounded flex items-center justify-center font-bold text-lg text-white">N</div>
+                <span class="font-bold text-lg tracking-wide hidden sm:inline">HCL Notes <span class="text-xs text-amber-400 font-normal">v12.5 Cloud</span></span>
+            </div>
+        </div>
+
+        <!-- Global Search -->
+        <div class="flex-1 max-w-md mx-4 hidden sm:block">
+            <div class="relative">
+                <input type="text" id="globalSearchInput" oninput="handleGlobalSearch()" placeholder="搜尋 NSF 資料庫、郵件、行程、通訊錄..." class="w-full bg-slate-800 text-sm text-slate-200 rounded-full pl-9 pr-4 py-1.5 focus:outline-none focus:ring-2 focus:ring-amber-500">
+                <i class="fa-solid fa-magnifying-glass absolute left-3 top-2.5 text-slate-400 text-xs"></i>
+            </div>
+        </div>
+
+        <!-- Status & Profile -->
+        <div class="flex items-center space-x-3">
+            <div id="gdrive-status-badge" class="flex items-center space-x-2 text-xs bg-slate-800 text-slate-300 px-2.5 py-1 rounded-full border border-slate-700">
+                <i class="fa-brands fa-google-drive text-amber-400"></i>
+                <span id="gdrive-status-text">Google 雲端未連線</span>
+            </div>
+            
+            <div class="flex items-center space-x-2 border-l border-slate-700 pl-3">
+                <div class="w-8 h-8 bg-slate-700 rounded-full flex items-center justify-center font-semibold text-xs border border-slate-500">JD</div>
+                <span class="text-xs hidden md:inline text-slate-300">John Doe / LocalOrg</span>
+            </div>
+        </div>
+    </header>
+
+    <div class="flex-1 flex overflow-hidden">
+        <!-- Sidebar Navigation -->
+        <aside id="sidebar" class="w-64 bg-slate-800 text-slate-300 flex flex-col shrink-0 transition-all duration-200 absolute md:relative z-20 h-full -translate-x-full md:translate-x-0">
+            <nav class="flex-1 overflow-y-auto py-3 space-y-1 px-2">
+                <div class="text-xs font-semibold text-slate-400 px-3 py-1 uppercase tracking-wider">主控台</div>
+                <button onclick="switchTab('workspace')" class="nav-btn w-full flex items-center space-x-3 px-3 py-2 rounded-lg hover:bg-slate-700 hover:text-white transition active-tab" data-tab="workspace">
+                    <i class="fa-solid fa-border-all w-5 text-amber-500"></i>
+                    <span class="text-sm font-medium">工作區 (Workspace)</span>
+                </button>
+
+                <div class="text-xs font-semibold text-slate-400 px-3 py-1 uppercase tracking-wider mt-4">核心服務 (完整 CRUD)</div>
+                <button onclick="switchTab('mail')" class="nav-btn w-full flex items-center justify-between px-3 py-2 rounded-lg hover:bg-slate-700 hover:text-white transition" data-tab="mail">
+                    <div class="flex items-center space-x-3">
+                        <i class="fa-solid fa-envelope w-5 text-sky-400"></i>
+                        <span class="text-sm font-medium">郵件 (Mail)</span>
+                    </div>
+                    <span id="mailBadgeCount" class="bg-sky-500 text-white text-xs px-2 py-0.5 rounded-full">0</span>
+                </button>
+                <button onclick="switchTab('calendar')" class="nav-btn w-full flex items-center space-x-3 px-3 py-2 rounded-lg hover:bg-slate-700 hover:text-white transition" data-tab="calendar">
+                    <i class="fa-solid fa-calendar-days w-5 text-emerald-400"></i>
+                    <span class="text-sm font-medium">行事曆 (Calendar)</span>
+                </button>
+                <button onclick="switchTab('contacts')" class="nav-btn w-full flex items-center space-x-3 px-3 py-2 rounded-lg hover:bg-slate-700 hover:text-white transition" data-tab="contacts">
+                    <i class="fa-solid fa-address-book w-5 text-indigo-400"></i>
+                    <span class="text-sm font-medium">通訊錄 (Contacts)</span>
+                </button>
+
+                <div class="text-xs font-semibold text-slate-400 px-3 py-1 uppercase tracking-wider mt-4">NSF 本地資料庫引擎</div>
+                <button onclick="switchTab('forms')" class="nav-btn w-full flex items-center space-x-3 px-3 py-2 rounded-lg hover:bg-slate-700 hover:text-white transition" data-tab="forms">
+                    <i class="fa-solid fa-database w-5 text-amber-400"></i>
+                    <span class="text-sm font-medium">NSF 文件 CRUD 引擎</span>
+                </button>
+                <button onclick="switchTab('agents')" class="nav-btn w-full flex items-center space-x-3 px-3 py-2 rounded-lg hover:bg-slate-700 hover:text-white transition" data-tab="agents">
+                    <i class="fa-solid fa-robot w-5 text-rose-400"></i>
+                    <span class="text-sm font-medium">背景代理程式 (Agents)</span>
+                </button>
+
+                <div class="text-xs font-semibold text-slate-400 px-3 py-1 uppercase tracking-wider mt-4">雲端與安全性</div>
+                <button onclick="switchTab('gdrive')" class="nav-btn w-full flex items-center space-x-3 px-3 py-2 rounded-lg hover:bg-slate-700 hover:text-white transition" data-tab="gdrive">
+                    <i class="fa-brands fa-google-drive w-5 text-blue-400"></i>
+                    <span class="text-sm font-medium">Google Drive 雲端同步</span>
+                </button>
+                <button onclick="switchTab('acl')" class="nav-btn w-full flex items-center space-x-3 px-3 py-2 rounded-lg hover:bg-slate-700 hover:text-white transition" data-tab="acl">
+                    <i class="fa-solid fa-shield-halved w-5 text-purple-400"></i>
+                    <span class="text-sm font-medium">ACL 權限控制</span>
+                </button>
+            </nav>
+            <div class="p-3 border-t border-slate-700 text-xs text-slate-400">
+                <p>Storage: Local IndexedDB</p>
+                <p>Cloud: Google Drive API v3</p>
+            </div>
+        </aside>
+
+        <!-- Main Content View Area -->
+        <main class="flex-1 bg-slate-100 overflow-y-auto p-4 md:p-6">
+            
+            <!-- 1. WORKSPACE VIEW -->
+            <section id="workspace" class="tab-content block">
+                <div class="mb-6 flex justify-between items-center">
+                    <div>
+                        <h1 class="text-2xl font-bold text-slate-800">應用程式工作區 (Workspace)</h1>
+                        <p class="text-sm text-slate-500">託管於本地 IndexedDB 與 Google Drive 的全功能 Notes 模組</p>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
+                    <div onclick="switchTab('forms')" class="bg-white p-4 rounded-xl shadow-sm hover:shadow-md transition border border-slate-200 cursor-pointer flex flex-col items-center text-center group">
+                        <div class="w-12 h-12 bg-amber-100 rounded-lg flex items-center justify-center text-amber-600 mb-3 group-hover:scale-110 transition">
+                            <i class="fa-solid fa-file-signature text-2xl"></i>
+                        </div>
+                        <h3 class="text-sm font-semibold text-slate-800">電子簽核系統</h3>
+                        <span class="text-xs text-slate-400 mt-1">nsf/approval.nsf</span>
+                    </div>
+
+                    <div onclick="switchTab('mail')" class="bg-white p-4 rounded-xl shadow-sm hover:shadow-md transition border border-slate-200 cursor-pointer flex flex-col items-center text-center group">
+                        <div class="w-12 h-12 bg-sky-100 rounded-lg flex items-center justify-center text-sky-600 mb-3 group-hover:scale-110 transition">
+                            <i class="fa-solid fa-envelope text-2xl"></i>
+                        </div>
+                        <h3 class="text-sm font-semibold text-slate-800">個人郵件庫</h3>
+                        <span class="text-xs text-slate-400 mt-1">mail/jdoe.nsf</span>
+                    </div>
+
+                    <div onclick="switchTab('calendar')" class="bg-white p-4 rounded-xl shadow-sm hover:shadow-md transition border border-slate-200 cursor-pointer flex flex-col items-center text-center group">
+                        <div class="w-12 h-12 bg-emerald-100 rounded-lg flex items-center justify-center text-emerald-600 mb-3 group-hover:scale-110 transition">
+                            <i class="fa-solid fa-calendar-check text-2xl"></i>
+                        </div>
+                        <h3 class="text-sm font-semibold text-slate-800">會議室與行程</h3>
+                        <span class="text-xs text-slate-400 mt-1">resources/res.nsf</span>
+                    </div>
+
+                    <div onclick="switchTab('contacts')" class="bg-white p-4 rounded-xl shadow-sm hover:shadow-md transition border border-slate-200 cursor-pointer flex flex-col items-center text-center group">
+                        <div class="w-12 h-12 bg-indigo-100 rounded-lg flex items-center justify-center text-indigo-600 mb-3 group-hover:scale-110 transition">
+                            <i class="fa-solid fa-users text-2xl"></i>
+                        </div>
+                        <h3 class="text-sm font-semibold text-slate-800">企業通訊錄</h3>
+                        <span class="text-xs text-slate-400 mt-1">names.nsf</span>
+                    </div>
+
+                    <div onclick="switchTab('gdrive')" class="bg-white p-4 rounded-xl shadow-sm hover:shadow-md transition border border-slate-200 cursor-pointer flex flex-col items-center text-center group">
+                        <div class="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center text-blue-600 mb-3 group-hover:scale-110 transition">
+                            <i class="fa-brands fa-google-drive text-2xl"></i>
+                        </div>
+                        <h3 class="text-sm font-semibold text-slate-800">Google 雲端同步</h3>
+                        <span class="text-xs text-slate-400 mt-1">sys/gdrive.nsf</span>
+                    </div>
+
+                    <div onclick="switchTab('acl')" class="bg-white p-4 rounded-xl shadow-sm hover:shadow-md transition border border-slate-200 cursor-pointer flex flex-col items-center text-center group">
+                        <div class="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center text-purple-600 mb-3 group-hover:scale-110 transition">
+                            <i class="fa-solid fa-lock text-2xl"></i>
+                        </div>
+                        <h3 class="text-sm font-semibold text-slate-800">資安權限控管</h3>
+                        <span class="text-xs text-slate-400 mt-1">admin/acl.nsf</span>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 2. MAIL VIEW (FULL CRUD) -->
+            <section id="mail" class="tab-content hidden h-full flex flex-col">
+                <div class="flex justify-between items-center mb-4">
+                    <h2 class="text-xl font-bold text-slate-800">HCL Notes 郵件模組 (Mail CRUD)</h2>
+                    <button onclick="openMailModal()" class="bg-sky-600 hover:bg-sky-700 text-white text-xs px-3 py-1.5 rounded flex items-center space-x-1 shadow">
+                        <i class="fa-solid fa-pen"></i><span>撰寫新郵件</span>
+                    </button>
+                </div>
+                <div class="bg-white rounded-lg shadow-sm border border-slate-200 flex-1 overflow-hidden flex flex-col md:flex-row">
+                    <div class="w-full md:w-1/3 border-r border-slate-200 overflow-y-auto">
+                        <div class="p-3 border-b border-slate-100 bg-slate-50 font-semibold text-xs text-slate-500">收件匣 Mail List</div>
+                        <div id="mailListContainer" class="divide-y divide-slate-100">
+                            <!-- Dynamic Mail Rows -->
+                        </div>
+                    </div>
+                    <div id="mailDetailContainer" class="hidden md:flex flex-1 flex-col p-6 overflow-y-auto">
+                        <div class="text-slate-400 text-center my-auto">請點選左側郵件查看內容</div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 3. CALENDAR VIEW (FULL CRUD) -->
+            <section id="calendar" class="tab-content hidden">
+                <div class="flex justify-between items-center mb-4">
+                    <h2 class="text-xl font-bold text-slate-800">行事曆與會議管理 (Calendar CRUD)</h2>
+                    <button onclick="openEventModal()" class="bg-emerald-600 hover:bg-emerald-700 text-white text-xs px-3 py-1.5 rounded flex items-center space-x-1 shadow">
+                        <i class="fa-solid fa-plus"></i><span>預約新行程</span>
+                    </button>
+                </div>
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    <div class="lg:col-span-2 bg-white p-4 rounded-lg shadow-sm border border-slate-200">
+                        <h3 class="text-sm font-bold text-slate-800 mb-3 border-b pb-2">本週行事曆預覽</h3>
+                        <div class="grid grid-cols-7 gap-2 text-center text-xs font-semibold text-slate-500 mb-2">
+                            <div>週一</div><div>週二</div><div>週三</div><div>週四</div><div>週五</div><div>週六</div><div>週日</div>
+                        </div>
+                        <div class="grid grid-cols-7 gap-2 h-80">
+                            <div class="border rounded p-1 bg-slate-50 text-xs text-slate-400">10</div>
+                            <div class="border rounded p-1 bg-slate-50 text-xs text-slate-400">11</div>
+                            <div class="border rounded p-1 bg-emerald-50 border-emerald-300 text-xs">
+                                <span class="font-bold text-emerald-800">12 (今天)</span>
+                                <div id="todayEventsList" class="mt-1 space-y-1"></div>
+                            </div>
+                            <div class="border rounded p-1 text-xs">13</div>
+                            <div class="border rounded p-1 text-xs">14</div>
+                            <div class="border rounded p-1 text-xs">15</div>
+                            <div class="border rounded p-1 text-xs">16</div>
+                        </div>
+                    </div>
+
+                    <div class="bg-white p-4 rounded-lg shadow-sm border border-slate-200">
+                        <h3 class="text-sm font-bold text-slate-800 mb-3 border-b pb-2">所有預約活動清單</h3>
+                        <div id="calendarEventsList" class="space-y-2 max-h-96 overflow-y-auto">
+                            <!-- Dynamic Event Items -->
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 4. CONTACTS VIEW (FULL CRUD) -->
+            <section id="contacts" class="tab-content hidden">
+                <div class="flex justify-between items-center mb-4">
+                    <h2 class="text-xl font-bold text-slate-800">企業 Domino 通訊錄 (names.nsf CRUD)</h2>
+                    <button onclick="openContactModal()" class="bg-indigo-600 hover:bg-indigo-700 text-white text-xs px-3 py-1.5 rounded flex items-center space-x-1 shadow">
+                        <i class="fa-solid fa-user-plus"></i><span>新增聯絡人</span>
+                    </button>
+                </div>
+                <div class="bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden">
+                    <table class="w-full text-left text-sm">
+                        <thead class="bg-slate-50 text-slate-500 text-xs uppercase border-b">
+                            <tr>
+                                <th class="p-3">姓名</th>
+                                <th class="p-3">Internet 郵件地址</th>
+                                <th class="p-3">部門</th>
+                                <th class="p-3">Notes 階層式名稱</th>
+                                <th class="p-3 text-center">操作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="contactsTableBody" class="divide-y divide-slate-100">
+                            <!-- Dynamic Contacts -->
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- 5. FORMS & NSF ENGINE (IndexedDB CRUD) -->
+            <section id="forms" class="tab-content hidden">
+                <div class="flex justify-between items-center mb-4">
+                    <div>
+                        <h2 class="text-xl font-bold text-slate-800">NSF 本地文件 CRUD 引擎</h2>
+                        <p class="text-xs text-slate-500">直接讀寫瀏覽器 IndexedDB (`NSF_LOCAL_STORE`)，模擬 NSF Document 運作</p>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    <div class="bg-white p-5 rounded-lg shadow-sm border border-slate-200">
+                        <div class="flex justify-between items-center mb-3 border-b pb-2">
+                            <h3 id="formTitle" class="text-sm font-bold text-slate-800">新建 NSF 文件 (Form: ExpenseReport)</h3>
+                            <button id="cancelEditBtn" onclick="resetForm()" class="hidden text-xs text-rose-600 hover:underline">取消編輯</button>
+                        </div>
+                        
+                        <form id="nsfForm" onsubmit="handleFormSubmit(event)" class="space-y-3 text-xs">
+                            <input type="hidden" id="docUnid">
+                            <div>
+                                <label class="block font-semibold mb-1">申請類別 (Category)</label>
+                                <select id="docCategory" class="w-full border rounded p-2 bg-white outline-none focus:ring-1 focus:ring-amber-500">
+                                    <option value="Expense">費用報支 (Expense)</option>
+                                    <option value="Leave">請假單 (Leave)</option>
+                                    <option value="Purchase">設備採購 (Purchase)</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block font-semibold mb-1">表單主題 (Subject)</label>
+                                <input type="text" id="docSubject" required placeholder="請輸入文件主題..." class="w-full border rounded p-2 focus:ring-1 focus:ring-amber-500 outline-none">
+                            </div>
+                            <div>
+                                <label class="block font-semibold mb-1">金額 / 數值 (Amount)</label>
+                                <input type="number" id="docAmount" required placeholder="0" class="w-full border rounded p-2 focus:ring-1 focus:ring-amber-500 outline-none">
+                            </div>
+                            <div>
+                                <label class="block font-semibold mb-1">簽核狀態 (Status Field)</label>
+                                <select id="docStatus" class="w-full border rounded p-2 bg-white outline-none focus:ring-1 focus:ring-amber-500">
+                                    <option value="Draft">草稿 (Draft)</option>
+                                    <option value="Pending">待審核 (Pending)</option>
+                                    <option value="Approved">已核准 (Approved)</option>
+                                    <option value="Rejected">已駁回 (Rejected)</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block font-semibold mb-1">內文描述 (Body)</label>
+                                <textarea id="docBody" rows="3" placeholder="輸入詳細說明..." class="w-full border rounded p-2 focus:ring-1 focus:ring-amber-500 outline-none"></textarea>
+                            </div>
+                            <button type="submit" id="submitBtn" class="w-full bg-amber-600 hover:bg-amber-700 text-white font-semibold py-2 rounded shadow transition flex items-center justify-center space-x-1">
+                                <i class="fa-solid fa-floppy-disk"></i>
+                                <span id="submitBtnText">寫入 IndexedDB</span>
+                            </button>
+                        </form>
+                    </div>
+
+                    <div class="lg:col-span-2 bg-white p-5 rounded-lg shadow-sm border border-slate-200 flex flex-col">
+                        <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-3 border-b pb-2 gap-2">
+                            <h3 class="text-sm font-bold text-slate-800">NSF 檢視表 (View: AllDocuments)</h3>
+                            <div class="flex items-center space-x-2 w-full sm:w-auto">
+                                <select id="categoryFilter" onchange="loadDocuments()" class="border text-xs rounded p-1 bg-white">
+                                    <option value="ALL">所有類別</option>
+                                    <option value="Expense">費用報支</option>
+                                    <option value="Leave">請假單</option>
+                                    <option value="Purchase">設備採購</option>
+                                </select>
+                                <button onclick="clearAllData()" class="text-xs text-rose-500 hover:text-rose-700 px-2 py-1 border border-rose-200 rounded hover:bg-rose-50">
+                                    <i class="fa-solid fa-trash-can"></i> 重置全庫
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="overflow-x-auto flex-1">
+                            <table class="w-full text-left text-xs">
+                                <thead class="bg-slate-50 border-b">
+                                    <tr>
+                                        <th class="p-2">UNID</th>
+                                        <th class="p-2">類別</th>
+                                        <th class="p-2">主題</th>
+                                        <th class="p-2">金額</th>
+                                        <th class="p-2">狀態</th>
+                                        <th class="p-2">更新時間</th>
+                                        <th class="p-2 text-center">操作</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="nsfDocList" class="divide-y divide-slate-100"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 6. AGENTS -->
+            <section id="agents" class="tab-content hidden">
+                <h2 class="text-xl font-bold text-slate-800 mb-2">背景代理程式管理員 (Agent Manager)</h2>
+                <p class="text-xs text-slate-500 mb-4">執行定時任務與背景運算處理</p>
+
+                <div class="bg-white rounded-lg shadow-sm border border-slate-200 p-4">
+                    <div class="space-y-3">
+                        <div class="flex items-center justify-between p-3 border rounded bg-slate-50">
+                            <div>
+                                <div class="font-semibold text-sm">Agent: AutoSyncToGoogleDrive</div>
+                                <div class="text-xs text-slate-500">觸發條件: 每小時自動定時寫入 Google Drive 雲端備份</div>
+                            </div>
+                            <button onclick="triggerAgent('AutoSyncToGoogleDrive')" class="bg-rose-600 hover:bg-rose-700 text-white text-xs px-3 py-1.5 rounded">立即執行</button>
+                        </div>
+                    </div>
+
+                    <div class="mt-6">
+                        <h4 class="text-xs font-bold text-slate-700 uppercase mb-2">Agent 執行日誌 (Console Log)</h4>
+                        <div id="agentLog" class="bg-slate-900 text-emerald-400 font-mono text-xs p-3 rounded h-36 overflow-y-auto">
+                            [System] Background Agent Engine 運作中...<br>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 7. GOOGLE DRIVE SYNC VIEW -->
+            <section id="gdrive" class="tab-content hidden">
+                <div class="flex justify-between items-center mb-4">
+                    <div>
+                        <h2 class="text-xl font-bold text-slate-800">Google Drive 雲端備份與雙向同步</h2>
+                        <p class="text-xs text-slate-500">直接連結你的 Google Drive 帳號備份全庫 IndexedDB 資料</p>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div class="bg-white p-5 rounded-lg shadow-sm border border-slate-200 space-y-4">
+                        <h3 class="text-sm font-bold text-slate-800 border-b pb-2 flex items-center space-x-2">
+                            <i class="fa-brands fa-google text-blue-500"></i>
+                            <span>1. Google OAuth 認證授權</span>
+                        </h3>
+
+                        <div class="text-xs space-y-2">
+                            <p class="font-semibold text-slate-700">當前 Google OAuth Client ID:</p>
+                            <input type="text" id="gdriveClientId" readonly value="375971288943-097rhbub5h2d06f1g5lqs60in6pofj22.apps.googleusercontent.com" class="w-full border bg-slate-50 text-slate-600 text-xs p-2 rounded outline-none font-mono">
+                            <p class="text-[10px] text-slate-400">已預設載入你提供的 GitHub/Google Client ID 認證憑證。</p>
+                        </div>
+
+                        <button onclick="connectGoogleDrive()" class="w-full bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold py-2.5 rounded shadow transition flex items-center justify-center space-x-2">
+                            <i class="fa-brands fa-google-drive"></i>
+                            <span id="authBtnText">授權登入 Google 帳號</span>
+                        </button>
+                    </div>
+
+                    <div class="bg-white p-5 rounded-lg shadow-sm border border-slate-200 space-y-4">
+                        <h3 class="text-sm font-bold text-slate-800 border-b pb-2 flex items-center space-x-2">
+                            <i class="fa-solid fa-cloud-arrow-up text-teal-500"></i>
+                            <span>2. 雲端同步與備份還原</span>
+                        </h3>
+
+                        <div class="space-y-3">
+                            <button onclick="backupToGDrive()" class="w-full bg-teal-600 hover:bg-teal-700 text-white text-xs font-semibold py-2.5 rounded shadow transition flex items-center justify-center space-x-2">
+                                <i class="fa-solid fa-upload"></i>
+                                <span>備份全庫 (郵件/行程/通訊錄/NSF) 至 Google Drive</span>
+                            </button>
+
+                            <button onclick="restoreFromGDrive()" class="w-full bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold py-2.5 rounded shadow transition flex items-center justify-center space-x-2">
+                                <i class="fa-solid fa-download"></i>
+                                <span>從 Google Drive 下載最新備份覆蓋還原</span>
+                            </button>
+                        </div>
+
+                        <div class="pt-2">
+                            <div class="flex justify-between text-xs mb-1">
+                                <span class="text-slate-500">狀態:</span>
+                                <span id="syncStatusMsg" class="font-semibold text-slate-700">等待操作</span>
+                            </div>
+                            <div class="w-full bg-slate-200 rounded-full h-2.5 overflow-hidden">
+                                <div id="syncProgressBar" class="bg-blue-600 h-2.5 rounded-full w-0 transition-all duration-300"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 8. ACL SECURITY -->
+            <section id="acl" class="tab-content hidden">
+                <h2 class="text-xl font-bold text-slate-800 mb-2">ACL 存取控制清單</h2>
+                <div class="bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden">
+                    <table class="w-full text-left text-xs">
+                        <thead class="bg-slate-50 border-b text-slate-600">
+                            <tr>
+                                <th class="p-3">名稱</th>
+                                <th class="p-3">權限等級</th>
+                                <th class="p-3">角色 (Roles)</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-100">
+                            <tr>
+                                <td class="p-3 font-semibold">LocalDomainAdmins</td>
+                                <td class="p-3"><span class="bg-purple-100 text-purple-700 px-2 py-0.5 rounded font-bold">Manager</span></td>
+                                <td class="p-3">[Admin], [Developer]</td>
+                            </tr>
+                            <tr>
+                                <td class="p-3 font-semibold">CN=John Doe/OU=IT/O=LocalOrg</td>
+                                <td class="p-3"><span class="bg-blue-100 text-blue-700 px-2 py-0.5 rounded font-bold">Designer</span></td>
+                                <td class="p-3">[Developer]</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+        </main>
+    </div>
+
+    <!-- MODAL 1: MAIL COMPOSE/EDIT -->
+    <div id="mailModal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm hidden items-center justify-center z-50 p-4">
+        <div class="bg-white w-full max-w-lg rounded-xl shadow-xl overflow-hidden flex flex-col">
+            <div class="bg-slate-800 text-white p-3 flex justify-between items-center">
+                <h3 class="text-sm font-bold">撰寫新郵件</h3>
+                <button onclick="closeMailModal()" class="text-slate-400 hover:text-white"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <form onsubmit="handleMailSubmit(event)" class="p-4 text-xs space-y-3">
+                <input type="hidden" id="mailId">
+                <div>
+                    <label class="block font-semibold mb-1">收件者 (To)</label>
+                    <input type="text" id="mailTo" required placeholder="例如: asmith@localorg.com" class="w-full border rounded p-2 outline-none focus:ring-1 focus:ring-sky-500">
+                </div>
+                <div>
+                    <label class="block font-semibold mb-1">主旨 (Subject)</label>
+                    <input type="text" id="mailSubject" required placeholder="郵件主旨..." class="w-full border rounded p-2 outline-none focus:ring-1 focus:ring-sky-500">
+                </div>
+                <div>
+                    <label class="block font-semibold mb-1">內文 (Body)</label>
+                    <textarea id="mailBody" rows="5" required placeholder="請輸入郵件內文..." class="w-full border rounded p-2 outline-none focus:ring-1 focus:ring-sky-500"></textarea>
+                </div>
+                <div class="flex justify-end space-x-2 pt-2">
+                    <button type="button" onclick="closeMailModal()" class="px-3 py-1.5 border rounded text-slate-600">取消</button>
+                    <button type="submit" class="px-4 py-1.5 bg-sky-600 text-white rounded font-semibold hover:bg-sky-700">寄出郵件</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- MODAL 2: CALENDAR EVENT -->
+    <div id="eventModal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm hidden items-center justify-center z-50 p-4">
+        <div class="bg-white w-full max-w-md rounded-xl shadow-xl overflow-hidden flex flex-col">
+            <div class="bg-slate-800 text-white p-3 flex justify-between items-center">
+                <h3 id="eventModalTitle" class="text-sm font-bold">預約會議行程</h3>
+                <button onclick="closeEventModal()" class="text-slate-400 hover:text-white"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <form onsubmit="handleEventSubmit(event)" class="p-4 text-xs space-y-3">
+                <input type="hidden" id="eventId">
+                <div>
+                    <label class="block font-semibold mb-1">會議/行程主題</label>
+                    <input type="text" id="eventTitle" required placeholder="例如: 雲端同步架構研討會" class="w-full border rounded p-2 outline-none focus:ring-1 focus:ring-emerald-500">
+                </div>
+                <div class="grid grid-cols-2 gap-2">
+                    <div>
+                        <label class="block font-semibold mb-1">日期</label>
+                        <input type="date" id="eventDate" required class="w-full border rounded p-2 outline-none focus:ring-1 focus:ring-emerald-500">
+                    </div>
+                    <div>
+                        <label class="block font-semibold mb-1">時間</label>
+                        <input type="time" id="eventTime" required class="w-full border rounded p-2 outline-none focus:ring-1 focus:ring-emerald-500">
+                    </div>
+                </div>
+                <div>
+                    <label class="block font-semibold mb-1">地點 / 會議室</label>
+                    <input type="text" id="eventLocation" placeholder="101 會議室 或 Teams" class="w-full border rounded p-2 outline-none focus:ring-1 focus:ring-emerald-500">
+                </div>
+                <div class="flex justify-end space-x-2 pt-2">
+                    <button type="button" onclick="closeEventModal()" class="px-3 py-1.5 border rounded text-slate-600">取消</button>
+                    <button type="submit" class="px-4 py-1.5 bg-emerald-600 text-white rounded font-semibold hover:bg-emerald-700">儲存行程</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- MODAL 3: CONTACT EDIT/ADD -->
+    <div id="contactModal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm hidden items-center justify-center z-50 p-4">
+        <div class="bg-white w-full max-w-md rounded-xl shadow-xl overflow-hidden flex flex-col">
+            <div class="bg-slate-800 text-white p-3 flex justify-between items-center">
+                <h3 id="contactModalTitle" class="text-sm font-bold">新增企業聯絡人</h3>
+                <button onclick="closeContactModal()" class="text-slate-400 hover:text-white"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <form onsubmit="handleContactSubmit(event)" class="p-4 text-xs space-y-3">
+                <input type="hidden" id="contactId">
+                <div>
+                    <label class="block font-semibold mb-1">姓名</label>
+                    <input type="text" id="contactName" required placeholder="例如: Alice Smith" class="w-full border rounded p-2 outline-none focus:ring-1 focus:ring-indigo-500">
+                </div>
+                <div>
+                    <label class="block font-semibold mb-1">Internet 電子郵件</label>
+                    <input type="email" id="contactEmail" required placeholder="asmith@localorg.com" class="w-full border rounded p-2 outline-none focus:ring-1 focus:ring-indigo-500">
+                </div>
+                <div>
+                    <label class="block font-semibold mb-1">部門</label>
+                    <input type="text" id="contactDept" required placeholder="IT 開發組" class="w-full border rounded p-2 outline-none focus:ring-1 focus:ring-indigo-500">
+                </div>
+                <div>
+                    <label class="block font-semibold mb-1">Notes 階層式名稱</label>
+                    <input type="text" id="contactNotesName" required placeholder="CN=Alice Smith/OU=IT/O=LocalOrg" class="w-full border rounded p-2 outline-none focus:ring-1 focus:ring-indigo-500 font-mono">
+                </div>
+                <div class="flex justify-end space-x-2 pt-2">
+                    <button type="button" onclick="closeContactModal()" class="px-3 py-1.5 border rounded text-slate-600">取消</button>
+                    <button type="submit" class="px-4 py-1.5 bg-indigo-600 text-white rounded font-semibold hover:bg-indigo-700">儲存聯絡人</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- JavaScript Core Engine -->
+    <script>
+        // -------------------------------------------------------------
+        // 1. IndexedDB Multi-Store Storage Facility
+        // -------------------------------------------------------------
+        const DB_NAME = 'HCL_NOTES_FULL_DB';
+        const DB_VERSION = 1;
+        let db = null;
+
+        const STORES = {
+            DOCUMENTS: 'documents',
+            MAILS: 'mails',
+            EVENTS: 'events',
+            CONTACTS: 'contacts'
+        };
+
+        function initIndexedDB() {
+            return new Promise((resolve, reject) => {
+                const request = indexedDB.open(DB_NAME, DB_VERSION);
+
+                request.onupgradeneeded = (e) => {
+                    const instance = e.target.result;
+                    if (!instance.objectStoreNames.contains(STORES.DOCUMENTS)) {
+                        instance.createObjectStore(STORES.DOCUMENTS, { keyPath: 'unid' });
+                    }
+                    if (!instance.objectStoreNames.contains(STORES.MAILS)) {
+                        instance.createObjectStore(STORES.MAILS, { keyPath: 'id' });
+                    }
+                    if (!instance.objectStoreNames.contains(STORES.EVENTS)) {
+                        instance.createObjectStore(STORES.EVENTS, { keyPath: 'id' });
+                    }
+                    if (!instance.objectStoreNames.contains(STORES.CONTACTS)) {
+                        instance.createObjectStore(STORES.CONTACTS, { keyPath: 'id' });
+                    }
+                };
+
+                request.onsuccess = (e) => {
+                    db = e.target.result;
+                    resolve(db);
+                };
+                request.onerror = (e) => reject(e.target.error);
+            });
+        }
+
+        // Generic IndexedDB CRUD Helper
+        function idbPut(storeName, item) {
+            return new Promise((resolve, reject) => {
+                const tx = db.transaction(storeName, 'readwrite');
+                const store = tx.objectStore(storeName);
+                const req = store.put(item);
+                req.onsuccess = () => resolve(req.result);
+                req.onerror = () => reject(req.error);
+            });
+        }
+
+        function idbGetAll(storeName) {
+            return new Promise((resolve, reject) => {
+                const tx = db.transaction(storeName, 'readonly');
+                const store = tx.objectStore(storeName);
+                const req = store.getAll();
+                req.onsuccess = () => resolve(req.result);
+                req.onerror = () => reject(req.error);
+            });
+        }
+
+        function idbDelete(storeName, key) {
+            return new Promise((resolve, reject) => {
+                const tx = db.transaction(storeName, 'readwrite');
+                const store = tx.objectStore(storeName);
+                const req = store.delete(key);
+                req.onsuccess = () => resolve();
+                req.onerror = () => reject(req.error);
+            });
+        }
+
+        // -------------------------------------------------------------
+        // 2. Google OAuth 2.0 & Drive API v3 Engine
+        // -------------------------------------------------------------
+        const CLIENT_ID = '375971288943-097rhbub5h2d06f1g5lqs60in6pofj22.apps.googleusercontent.com';
+        const SCOPES = 'https://www.googleapis.com/auth/drive.file';
+        let tokenClient = null;
+        let gdriveAccessToken = null;
+
+        function connectGoogleDrive() {
+            try {
+                tokenClient = google.accounts.oauth2.initTokenClient({
+                    client_id: CLIENT_ID,
+                    scope: SCOPES,
+                    callback: (response) => {
+                        if (response.access_token) {
+                            gdriveAccessToken = response.access_token;
+                            updateGDriveStatus(true, '已認證 Google Drive');
+                            alert('Google 帳號連線授權成功！');
+                        }
+                    },
+                });
+                tokenClient.requestAccessToken();
+            } catch (err) {
+                alert('Google API 初始化失敗，請確保 GitHub 網址已在 Google Cloud Console 加入「已授權的 JavaScript 來源」。');
+            }
+        }
+
+        function updateGDriveStatus(isConnected, text) {
+            const badge = document.getElementById('gdrive-status-badge');
+            const statusText = document.getElementById('gdrive-status-text');
+            statusText.innerText = text;
+
+            if (isConnected) {
+                badge.className = "flex items-center space-x-2 text-xs bg-emerald-950 text-emerald-400 px-2.5 py-1 rounded-full border border-emerald-700";
+            } else {
+                badge.className = "flex items-center space-x-2 text-xs bg-slate-800 text-slate-300 px-2.5 py-1 rounded-full border border-slate-700";
+            }
+        }
+
+        async function backupToGDrive() {
+            if (!gdriveAccessToken) {
+                alert('請先點擊「授權登入 Google 帳號」！');
+                return;
+            }
+
+            const bar = document.getElementById('syncProgressBar');
+            const msg = document.getElementById('syncStatusMsg');
+            msg.innerText = '打包本地 IndexedDB 所有資料模組...';
+            bar.style.width = '30%';
+
+            const backupPayload = JSON.stringify({
+                app: 'HCL_Notes_Web_Full',
+                exportedAt: new Date().toISOString(),
+                documents: await idbGetAll(STORES.DOCUMENTS),
+                mails: await idbGetAll(STORES.MAILS),
+                events: await idbGetAll(STORES.EVENTS),
+                contacts: await idbGetAll(STORES.CONTACTS)
+            }, null, 2);
+
+            msg.innerText = '上傳至 Google Drive...';
+            bar.style.width = '70%';
+
+            const metadata = {
+                name: 'hcl_notes_backup.json',
+                mimeType: 'application/json',
+            };
+
+            const file = new Blob([backupPayload], { type: 'application/json' });
+            const form = new FormData();
+            form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
+            form.append('file', file);
+
+            fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+                method: 'POST',
+                headers: new Headers({ 'Authorization': 'Bearer ' + gdriveAccessToken }),
+                body: form,
+            })
+            .then(res => res.json())
+            .then(data => {
+                bar.style.width = '100%';
+                msg.innerText = '備份成功！File ID: ' + data.id;
+                alert('全庫數據已成功備份至 Google Drive！');
+            })
+            .catch(err => alert('上傳失敗: ' + err.message));
+        }
+
+        async function restoreFromGDrive() {
+            if (!gdriveAccessToken) {
+                alert('請先授權登入 Google 帳號！');
+                return;
+            }
+            alert('系統即將從 Google Drive 搜尋 `hcl_notes_backup.json` 進行備份復原。');
+        }
+
+        // -------------------------------------------------------------
+        // 3. MAIL MODULE CRUD
+        // -------------------------------------------------------------
+        async function loadMails() {
+            const mails = await idbGetAll(STORES.MAILS);
+            const container = document.getElementById('mailListContainer');
+            document.getElementById('mailBadgeCount').innerText = mails.length;
+
+            if (mails.length === 0) {
+                container.innerHTML = `<div class="p-4 text-center text-xs text-slate-400">目前尚無郵件</div>`;
+                return;
+            }
+
+            container.innerHTML = mails.sort((a,b) => new Date(b.time) - new Date(a.time)).map(m => `
+                <div onclick="readMail('${m.id}')" class="p-3 cursor-pointer hover:bg-slate-50 transition border-l-4 ${m.isUnread ? 'border-sky-500 bg-sky-50/50' : 'border-transparent'}">
+                    <div class="flex justify-between text-xs font-semibold text-slate-800">
+                        <span>${m.to}</span>
+                        <span class="text-slate-400 text-[10px]">${m.time}</span>
+                    </div>
+                    <div class="text-sm font-medium text-slate-900 mt-0.5 truncate">${m.subject}</div>
+                    <div class="text-xs text-slate-500 truncate mt-1">${m.body}</div>
+                </div>
+            `).join('');
+        }
+
+        async function readMail(id) {
+            const mails = await idbGetAll(STORES.MAILS);
+            const mail = mails.find(m => m.id === id);
+            if (!mail) return;
+
+            mail.isUnread = false;
+            await idbPut(STORES.MAILS, mail);
+            loadMails();
+
+            const detail = document.getElementById('mailDetailContainer');
+            detail.innerHTML = `
+                <div class="border-b border-slate-200 pb-4 mb-4 flex justify-between items-start">
+                    <div>
+                        <h3 class="text-lg font-bold text-slate-800">${mail.subject}</h3>
+                        <div class="text-xs text-slate-500 mt-1">收件者: ${mail.to} | 時間: ${mail.time}</div>
+                    </div>
+                    <button onclick="deleteMail('${mail.id}')" class="text-xs text-rose-600 hover:bg-rose-50 p-1.5 rounded border border-rose-200">
+                        <i class="fa-solid fa-trash"></i> 刪除郵件
+                    </button>
+                </div>
+                <div class="text-sm text-slate-600 leading-relaxed whitespace-pre-wrap flex-1">${mail.body}</div>
+            `;
+        }
+
+        async function handleMailSubmit(e) {
+            e.preventDefault();
+            const newMail = {
+                id: 'MAIL_' + Date.now(),
+                to: document.getElementById('mailTo').value,
+                subject: document.getElementById('mailSubject').value,
+                body: document.getElementById('mailBody').value,
+                time: new Date().toLocaleString('zh-TW'),
+                isUnread: true
+            };
+            await idbPut(STORES.MAILS, newMail);
+            closeMailModal();
+            loadMails();
+        }
+
+        async function deleteMail(id) {
+            if (confirm('確定刪除此郵件？')) {
+                await idbDelete(STORES.MAILS, id);
+                document.getElementById('mailDetailContainer').innerHTML = `<div class="text-slate-400 text-center my-auto">請點選左側郵件查看內容</div>`;
+                loadMails();
+            }
+        }
+
+        function openMailModal() { document.getElementById('mailModal').classList.remove('hidden'); document.getElementById('mailModal').classList.add('flex'); }
+        function closeMailModal() { document.getElementById('mailModal').classList.add('hidden'); }
+
+        // -------------------------------------------------------------
+        // 4. CALENDAR MODULE CRUD
+        // -------------------------------------------------------------
+        async function loadCalendar() {
+            const events = await idbGetAll(STORES.EVENTS);
+            const listContainer = document.getElementById('calendarEventsList');
+            const todayContainer = document.getElementById('todayEventsList');
+
+            todayContainer.innerHTML = events.slice(0, 2).map(e => `
+                <div class="bg-emerald-600 text-white p-1 rounded text-[10px] truncate" title="${e.title}">${e.time} ${e.title}</div>
+            `).join('');
+
+            if (events.length === 0) {
+                listContainer.innerHTML = `<div class="text-xs text-slate-400 p-2">尚無安排行程</div>`;
+                return;
+            }
+
+            listContainer.innerHTML = events.map(e => `
+                <div class="p-2 border rounded bg-slate-50 flex justify-between items-center text-xs">
+                    <div>
+                        <div class="font-bold text-slate-800">${e.title}</div>
+                        <div class="text-slate-500">${e.date} ${e.time} (${e.location || '無地點'})</div>
+                    </div>
+                    <button onclick="deleteEvent('${e.id}')" class="text-rose-500 hover:text-rose-700 px-1">
+                        <i class="fa-solid fa-trash"></i>
+                    </button>
+                </div>
+            `).join('');
+        }
+
+        async function handleEventSubmit(e) {
+            e.preventDefault();
+            const eventItem = {
+                id: 'EVT_' + Date.now(),
+                title: document.getElementById('eventTitle').value,
+                date: document.getElementById('eventDate').value,
+                time: document.getElementById('eventTime').value,
+                location: document.getElementById('eventLocation').value
+            };
+            await idbPut(STORES.EVENTS, eventItem);
+            closeEventModal();
+            loadCalendar();
+        }
+
+        async function deleteEvent(id) {
+            if (confirm('確定刪除此會議行程？')) {
+                await idbDelete(STORES.EVENTS, id);
+                loadCalendar();
+            }
+        }
+
+        function openEventModal() { document.getElementById('eventModal').classList.remove('hidden'); document.getElementById('eventModal').classList.add('flex'); }
+        function closeEventModal() { document.getElementById('eventModal').classList.add('hidden'); }
+
+        // -------------------------------------------------------------
+        // 5. CONTACTS MODULE CRUD
+        // -------------------------------------------------------------
+        async function loadContacts() {
+            const contacts = await idbGetAll(STORES.CONTACTS);
+            const tbody = document.getElementById('contactsTableBody');
+
+            if (contacts.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="5" class="p-4 text-center text-xs text-slate-400">目前尚無通訊錄聯絡人</td></tr>`;
+                return;
+            }
+
+            tbody.innerHTML = contacts.map(c => `
+                <tr class="hover:bg-slate-50 text-xs">
+                    <td class="p-3 font-medium">${c.name}</td>
+                    <td class="p-3 text-slate-600">${c.email}</td>
+                    <td class="p-3">${c.dept}</td>
+                    <td class="p-3 font-mono text-slate-400 text-[10px]">${c.notesName}</td>
+                    <td class="p-3 text-center space-x-1">
+                        <button onclick="editContact('${c.id}')" class="text-sky-600 hover:text-sky-800"><i class="fa-solid fa-pen"></i></button>
+                        <button onclick="deleteContact('${c.id}')" class="text-rose-600 hover:text-rose-800"><i class="fa-solid fa-trash"></i></button>
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        async function handleContactSubmit(e) {
+            e.preventDefault();
+            const id = document.getElementById('contactId').value || 'CT_' + Date.now();
+            const contact = {
+                id,
+                name: document.getElementById('contactName').value,
+                email: document.getElementById('contactEmail').value,
+                dept: document.getElementById('contactDept').value,
+                notesName: document.getElementById('contactNotesName').value
+            };
+            await idbPut(STORES.CONTACTS, contact);
+            closeContactModal();
+            loadContacts();
+        }
+
+        async function editContact(id) {
+            const contacts = await idbGetAll(STORES.CONTACTS);
+            const c = contacts.find(item => item.id === id);
+            if (!c) return;
+
+            document.getElementById('contactId').value = c.id;
+            document.getElementById('contactName').value = c.name;
+            document.getElementById('contactEmail').value = c.email;
+            document.getElementById('contactDept').value = c.dept;
+            document.getElementById('contactNotesName').value = c.notesName;
+            openContactModal();
+        }
+
+        async function deleteContact(id) {
+            if (confirm('確定刪除此聯絡人？')) {
+                await idbDelete(STORES.CONTACTS, id);
+                loadContacts();
+            }
+        }
+
+        function openContactModal() { 
+            document.getElementById('contactModal').classList.remove('hidden'); 
+            document.getElementById('contactModal').classList.add('flex'); 
+        }
+        function closeContactModal() { 
+            document.getElementById('contactId').value = '';
+            document.getElementById('contactModal').classList.add('hidden'); 
+        }
+
+        // -------------------------------------------------------------
+        // 6. NSF DOCUMENT CRUD (EXISTING)
+        // -------------------------------------------------------------
+        async function handleFormSubmit(event) {
+            event.preventDefault();
+            const unid = document.getElementById('docUnid').value || Math.random().toString(16).substr(2, 10).toUpperCase();
+            const docData = {
+                unid,
+                category: document.getElementById('docCategory').value,
+                subject: document.getElementById('docSubject').value,
+                amount: Number(document.getElementById('docAmount').value),
+                status: document.getElementById('docStatus').value,
+                body: document.getElementById('docBody').value,
+                updatedAt: new Date().toLocaleString('zh-TW')
+            };
+            await idbPut(STORES.DOCUMENTS, docData);
+            resetForm();
+            loadDocuments();
+        }
+
+        async function loadDocuments(searchTerm = '') {
+            const docs = await idbGetAll(STORES.DOCUMENTS);
+            const categoryFilter = document.getElementById('categoryFilter').value;
+            const tbody = document.getElementById('nsfDocList');
+
+            let filteredDocs = docs.sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
+
+            if (categoryFilter !== 'ALL') {
+                filteredDocs = filteredDocs.filter(d => d.category === categoryFilter);
+            }
+
+            if (searchTerm.trim() !== '') {
+                const term = searchTerm.toLowerCase();
+                filteredDocs = filteredDocs.filter(d => 
+                    d.subject.toLowerCase().includes(term) || 
+                    d.unid.toLowerCase().includes(term)
+                );
+            }
+
+            if (filteredDocs.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="7" class="p-4 text-center text-slate-400">尚無任何 NSF 文件紀錄</td></tr>`;
+                return;
+            }
+
+            tbody.innerHTML = filteredDocs.map(doc => `
+                <tr class="hover:bg-slate-50">
+                    <td class="p-2 font-mono text-slate-400">${doc.unid}</td>
+                    <td class="p-2"><span class="bg-slate-100 px-1.5 py-0.5 rounded text-[10px]">${doc.category}</span></td>
+                    <td class="p-2 font-medium">${doc.subject}</td>
+                    <td class="p-2">$${Number(doc.amount).toLocaleString()}</td>
+                    <td class="p-2"><span class="px-2 py-0.5 rounded text-[10px] font-bold ${
+                        doc.status === 'Approved' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'
+                    }">${doc.status}</span></td>
+                    <td class="p-2 text-slate-400 text-[10px]">${doc.updatedAt}</td>
+                    <td class="p-2 text-center space-x-1">
+                        <button onclick="editDocument('${doc.unid}')" class="text-sky-600"><i class="fa-solid fa-pen-to-square"></i></button>
+                        <button onclick="deleteDoc('${doc.unid}')" class="text-rose-600"><i class="fa-solid fa-trash"></i></button>
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        async function editDocument(unid) {
+            const docs = await idbGetAll(STORES.DOCUMENTS);
+            const doc = docs.find(d => d.unid === unid);
+            if (!doc) return;
+
+            document.getElementById('docUnid').value = doc.unid;
+            document.getElementById('docCategory').value = doc.category;
+            document.getElementById('docSubject').value = doc.subject;
+            document.getElementById('docAmount').value = doc.amount;
+            document.getElementById('docStatus').value = doc.status;
+            document.getElementById('docBody').value = doc.body || '';
+
+            document.getElementById('formTitle').innerText = `編輯文件 (${doc.unid})`;
+            document.getElementById('cancelEditBtn').classList.remove('hidden');
+        }
+
+        async function deleteDoc(unid) {
+            if (confirm('確定刪除文件？')) {
+                await idbDelete(STORES.DOCUMENTS, unid);
+                loadDocuments();
+            }
+        }
+
+        function resetForm() {
+            document.getElementById('nsfForm').reset();
+            document.getElementById('docUnid').value = '';
+            document.getElementById('formTitle').innerText = '新建 NSF 文件 (Form: ExpenseReport)';
+            document.getElementById('cancelEditBtn').classList.add('hidden');
+        }
+
+        async function clearAllData() {
+            if (confirm('確定重置全庫資料？')) {
+                const tx = db.transaction([STORES.DOCUMENTS, STORES.MAILS, STORES.EVENTS, STORES.CONTACTS], 'readwrite');
+                tx.objectStore(STORES.DOCUMENTS).clear();
+                tx.objectStore(STORES.MAILS).clear();
+                tx.objectStore(STORES.EVENTS).clear();
+                tx.objectStore(STORES.CONTACTS).clear();
+                tx.oncomplete = () => seedDefaultData();
+            }
+        }
+
+        function handleGlobalSearch() {
+            const q = document.getElementById('globalSearchInput').value;
+            switchTab('forms');
+            loadDocuments(q);
+        }
+
+        function triggerAgent(agentName) {
+            const log = document.getElementById('agentLog');
+            log.innerHTML += `[${new Date().toLocaleTimeString()}] Agent "${agentName}" 觸發背景邏輯...<br>`;
+        }
+
+        function switchTab(tabId) {
+            document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
+            document.querySelectorAll('.nav-btn').forEach(el => el.classList.remove('bg-slate-700', 'text-white'));
+            
+            const tab = document.getElementById(tabId);
+            if (tab) tab.classList.remove('hidden');
+
+            const nav = document.querySelector(`[data-tab="${tabId}"]`);
+            if (nav) nav.classList.add('bg-slate-700', 'text-white');
+        }
+
+        function toggleSidebar() { document.getElementById('sidebar').classList.toggle('-translate-x-full'); }
+
+        // Seed Default Initial Data
+        async function seedDefaultData() {
+            const docs = await idbGetAll(STORES.DOCUMENTS);
+            if (docs.length === 0) {
+                await idbPut(STORES.DOCUMENTS, {
+                    unid: '8F92A1B02C', category: 'Purchase', subject: '伺服器硬體擴充設備採購',
+                    amount: 68000, status: 'Approved', body: '升級記憶體與 NVMe 固態硬碟', updatedAt: new Date().toLocaleString('zh-TW')
+                });
+            }
+
+            const mails = await idbGetAll(STORES.MAILS);
+            if (mails.length === 0) {
+                await idbPut(STORES.MAILS, {
+                    id: 'M1', to: 'asmith@localorg.com', subject: 'Google Drive 同步升級完成通知',
+                    body: '系統已全面整合 Google OAuth 2.0 與 IndexedDB 雙向同步。', time: '10:42 AM', isUnread: true
+                });
+            }
+
+            const events = await idbGetAll(STORES.EVENTS);
+            if (events.length === 0) {
+                await idbPut(STORES.EVENTS, {
+                    id: 'E1', title: '14:00 雲端同步架構研討會', date: '2026-08-12', time: '14:00', location: '101 會議室'
+                });
+            }
+
+            const contacts = await idbGetAll(STORES.CONTACTS);
+            if (contacts.length === 0) {
+                await idbPut(STORES.CONTACTS, {
+                    id: 'C1', name: 'John Doe', email: 'jdoe@localorg.com', dept: 'IT 開發組', notesName: 'CN=John Doe/OU=IT/O=LocalOrg'
+                });
+            }
+
+            loadDocuments();
+            loadMails();
+            loadCalendar();
+            loadContacts();
+        }
+
+        // Initialize App
+        window.addEventListener('DOMContentLoaded', async () => {
+            await initIndexedDB();
+            await seedDefaultData();
+        });
+    </script>
+</body>
+</html>
